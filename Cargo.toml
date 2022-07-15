@@ -1,0 +1,9 @@
+[package]
+name = "stereokit-bevy"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+stereokit-rs = {path = "../stereokit-rs"}
+prisma = "0.1.1"
+bevy = "0.7.0"
