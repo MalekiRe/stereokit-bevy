@@ -4,6 +4,7 @@ use stereokit::enums::{DisplayMode, RenderLayer};
 use stereokit::functions::{sk_run, SKSettings};
 use stereokit::pose::Pose;
 use stereokit::values::Matrix;
+use crate::Transform;
 
 pub struct StereoKitPlugin;
 
@@ -22,12 +23,9 @@ pub struct Model(pub model::Model);
 #[derive(Component)]
 pub struct Color(pub values::Color128);
 
-#[derive(Component)]
-pub struct Position(pub TransformBundle);
-
-fn render_models(query: Query<(&Visible, &Model, &Position, &Color)>) {
+fn render_models(query: Query<(&Visible, &Model, &Transform, &Color)>) {
     for render_obj in query.iter() {
-        let transform_global = render_obj.2.0.global;
+        let transform_global = render_obj.2;
         if render_obj.0.0 {
             render_obj.1.0.draw(
                 Pose::new(
