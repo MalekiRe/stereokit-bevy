@@ -15,7 +15,7 @@ fn add_example_model(mut commands: Commands, sk: Res<Sk>) {
 #[test]
 fn run_plugin_itself() {
     bevy_app::App::new()
-        .add_plugin(crate::StereoKitBevy)
+        .add_plugins(crate::StereoKitBevyMinimalPlugins)
         .add_startup_system(add_example_model)
         .run();
 }
