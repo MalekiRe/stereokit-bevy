@@ -1,9 +1,7 @@
-use crate::{ModelBundle, StereoKitBevyMinimalPlugins};
-use bevy_app::App;
+use crate::{model_draw, ModelBundle, ModelInfo};
+use bevy_app::{App, Plugin, PluginGroup, PluginGroupBuilder};
 use bevy_ecs::component::Component;
-use bevy_ecs::prelude::{
-    Added, Entity, EventReader, NonSend, Query, ReflectComponent, Res, ResMut, With, Without, World,
-};
+use bevy_ecs::prelude::{Added, Entity, EventReader, NonSend, Or, Query, ReflectComponent, Res, ResMut, With, Without, World};
 use bevy_ecs::query::Changed;
 use bevy_ecs::system::{Commands, SystemState};
 use bevy_quinnet::client::Client;
@@ -13,11 +11,13 @@ use bevy_reflect::{FromReflect, Reflect};
 use bevy_transform::prelude::Transform;
 use bimap::BiHashMap;
 use glam::Vec3;
-use leknet::{ClientEntity, EntityMap, MessageMap, Networked, ServerEntity};
+use leknet::{ClientEntity, EntityMap, LekClient, LekServer, MessageMap, Networked, ServerEntity};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::mem::transmute;
-use stereokit::{Color128, Handed, Material, Model, RenderLayer, Sk, SkDraw, StereoKitMultiThread};
+use bevy_quinnet::shared::channel::ChannelId;
+use bevy_transform::systems::sync_simple_transforms;
+use stereokit::{Color128, Handed, Material, Model, RenderLayer, Settings, Sk, SkDraw, StereoKitMultiThread};
 
 #[derive(Component)]
 pub struct IgnoreModelAdd;
@@ -31,12 +31,6 @@ pub enum ModelMsg {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ModelInfo {
-    Mem(Vec<u8>),
-    Cube(Vec3),
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModelData {
     model_info: ModelInfo,
     transform: Transform,
@@ -45,15 +39,22 @@ pub struct ModelData {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ModelData2 {
+    transform: Transform,
+    color128: Color128,
+    render_layer: RenderLayer,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ModelMsgClient {
     ModelAdded(ClientEntity, ModelData),
-    ModelChanged(ServerEntity, ModelData),
+    ModelChanged(ServerEntity, ModelData2),
     AllModelData(ClientId, Vec<(ServerEntity, ModelData)>),
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ModelMsgServer {
     ModelAdded(ServerEntity, ModelData),
-    ModelChanged(ServerEntity, ModelData),
+    ModelChanged(ServerEntity, ModelData2),
     EntityMap(ServerEntity, ClientEntity),
     GetAllModelData(ClientId),
 }
@@ -74,10 +75,9 @@ impl MessageMap for ModelMsg {
                 let server_entity = ServerEntity(commands.spawn_empty().id());
                 let endpoint = server.get_endpoint_mut().expect("no server endpoint");
                 endpoint
-                    .send_message(
+                    .send_lek_msg(
                         client_id,
-                        ModelMsg::Server(ModelMsgServer::EntityMap(server_entity, client_entity))
-                            .to_message(),
+                        ModelMsg::Server(ModelMsgServer::EntityMap(server_entity, client_entity)),
                     )
                     .unwrap();
                 for client_id2 in endpoint.clients() {
@@ -85,13 +85,12 @@ impl MessageMap for ModelMsg {
                         continue;
                     }
                     endpoint
-                        .send_message(
+                        .send_lek_msg(
                             client_id2.clone(),
                             ModelMsg::Server(ModelMsgServer::ModelAdded(
                                 server_entity,
                                 model_data.clone(),
-                            ))
-                            .to_message(),
+                            )),
                         )
                         .unwrap()
                 }
@@ -106,13 +105,12 @@ impl MessageMap for ModelMsg {
                         continue;
                     }
                     endpoint
-                        .send_message(
+                        .send_lek_msg(
                             client_id2.clone(),
                             ModelMsg::Server(ModelMsgServer::ModelChanged(
                                 server_entity,
                                 model_data.clone(),
-                            ))
-                            .to_message(),
+                            )),
                         )
                         .unwrap();
                 }
@@ -122,7 +120,7 @@ impl MessageMap for ModelMsg {
                 let mut endpoint = endpoint.get_mut(world);
                 let endpoint = endpoint.endpoint_mut();
                 for (entity, model_data) in all_model_data {
-                    endpoint.send_message(client_id.clone(), ModelMsg::Server(ModelMsgServer::ModelAdded(entity, model_data)).to_message()).unwrap();
+                    endpoint.send_lek_msg(client_id.clone(), ModelMsg::Server(ModelMsgServer::ModelAdded(entity, model_data))).unwrap();
                 }
             }
         }
@@ -147,6 +145,7 @@ impl MessageMap for ModelMsg {
                     commands
                         .spawn(ModelBundle::new(
                             model,
+                            model_data.model_info,
                             model_data.transform,
                             model_data.color128,
                             model_data.render_layer,
@@ -167,8 +166,7 @@ impl MessageMap for ModelMsg {
                 if let Some(client_entity) = client_entity {
                     let mut world_entity = world.entity_mut(client_entity.0);
                     match model_data {
-                        ModelData {
-                            model_info,
+                        ModelData2 {
                             transform,
                             color128,
                             render_layer,
@@ -188,7 +186,7 @@ impl MessageMap for ModelMsg {
             ModelMsgServer::GetAllModelData(client_id) => {
                 let mut system_state: SystemState<(
                     Query<
-                        (Entity, &Model, &Transform, &Color128, &RenderLayer),
+                        (Entity, &ModelInfo, &Transform, &Color128, &RenderLayer),
                         (With<Networked>, Without<IgnoreModelChanged>),
                     >,
                 ResMut<Client>, Res<EntityMap>)> = SystemState::new(world);
@@ -196,19 +194,19 @@ impl MessageMap for ModelMsg {
                 let mut client: ResMut<Client> = client;
                 let entity_map: Res<EntityMap> = entity_map;
                 let mut models = vec![];
-                for (entity, _, transform, color128, render_layer) in query.iter() {
+                for (entity, model_info, transform, color128, render_layer) in query.iter() {
                     let server_entity = match entity_map.get_by_left(&ClientEntity(entity)) {
                         None => continue,
                         Some(server_entity) => server_entity.clone(),
                     };
                     models.push((server_entity, ModelData {
-                        model_info: ModelInfo::Cube([0.1, 0.1, 0.1].into()),
+                        model_info: model_info.clone(),
                         transform: *transform,
                         color128: *color128,
                         render_layer: *render_layer,
                     }))
                 }
-                client.connection_mut().send_message(ModelMsg::Client(ModelMsgClient::AllModelData(client_id, models)).to_message()).unwrap();
+                client.connection_mut().send_lek_msg(ModelMsg::Client(ModelMsgClient::AllModelData(client_id, models))).unwrap();
 
             }
         }
@@ -221,6 +219,26 @@ impl MessageMap for ModelMsg {
 
     fn server_plugin(app: &mut App) {
         app.add_system(new_client_connected);
+    }
+
+    fn channel_id(&self) -> ChannelId {
+        match self {
+            ModelMsg::Client(client) => {
+                match client {
+                    ModelMsgClient::ModelAdded(_, _) => ChannelId::OrderedReliable(0),
+                    ModelMsgClient::ModelChanged(_, _) => ChannelId::Unreliable,
+                    ModelMsgClient::AllModelData(_, _) => ChannelId::OrderedReliable(0),
+                }
+            }
+            ModelMsg::Server(server) => {
+                match server {
+                    ModelMsgServer::ModelAdded(_, _) => ChannelId::OrderedReliable(0),
+                    ModelMsgServer::ModelChanged(_, _) => ChannelId::Unreliable,
+                    ModelMsgServer::EntityMap(_, _) => ChannelId::OrderedReliable(0),
+                    ModelMsgServer::GetAllModelData(_) => ChannelId::OrderedReliable(0),
+                }
+            }
+        }
     }
 
     fn get_type_name() -> String {
@@ -240,12 +258,64 @@ impl MessageMap for ModelMsg {
     }
 }
 
+
+pub struct StereoKitBevyClient;
+pub struct StereoKitBevyServer;
+
+impl Plugin for StereoKitBevyClient {
+    fn build(&self, app: &mut App) {
+        ModelMsg::add_leknet_client(app);
+        fn stereokit_loop(mut app: App) {
+            Settings::default()
+                .init()
+                .unwrap()
+                .run(|_| app.update(), |_| ());
+        }
+        app.set_runner(stereokit_loop);
+        app.insert_resource(unsafe { stereokit::Sk::create_unsafe() });
+        app.insert_non_send_resource(unsafe { stereokit::SkDraw::create_unsafe() });
+        app.add_system(sync_simple_transforms);
+        app.add_system(model_draw);
+    }
+}
+impl Plugin for StereoKitBevyServer {
+    fn build(&self, app: &mut App) {
+        ModelMsg::add_leknet_server(app);
+        fn server_loop(mut app: App) {
+            loop {
+                app.update()
+            }
+        }
+        app.set_runner(server_loop);
+    }
+}
+
+pub struct StereoKitBevyClientPlugins;
+pub struct StereoKitBevyServerPlugins;
+
+impl PluginGroup for StereoKitBevyClientPlugins {
+    fn build(self) -> PluginGroupBuilder {
+        PluginGroupBuilder::start::<Self>()
+            .add(StereoKitBevyClient)
+            .add(bevy_transform::TransformPlugin)
+            .add(bevy_time::TimePlugin)
+            .add(bevy_quinnet::client::QuinnetClientPlugin::default())
+    }
+}
+
+impl PluginGroup for StereoKitBevyServerPlugins {
+    fn build(self) -> PluginGroupBuilder {
+        PluginGroupBuilder::start::<Self>()
+            .add(StereoKitBevyServer)
+            .add(bevy_time::TimePlugin)
+            .add(bevy_quinnet::server::QuinnetServerPlugin::default())
+    }
+}
+
 #[test]
 fn server_test() {
     let mut app = App::new();
-    app.add_plugins(bevy::MinimalPlugins);
-    app.add_plugin(bevy_quinnet::server::QuinnetServerPlugin::default());
-    ModelMsg::add_leknet_server(&mut app);
+    app.add_plugins(StereoKitBevyServerPlugins);
     app.add_startup_system(leknet::start_server);
     app.run();
 }
@@ -253,9 +323,7 @@ fn server_test() {
 #[test]
 fn client_test() {
     let mut app = App::new();
-    app.add_plugins(StereoKitBevyMinimalPlugins);
-    app.add_plugin(bevy_quinnet::client::QuinnetClientPlugin::default());
-    ModelMsg::add_leknet_client(&mut app);
+    app.add_plugins(StereoKitBevyClientPlugins);
     app.add_startup_system(leknet::connect_to_server);
     app.add_startup_system(add_example_model);
     app.add_system(sync_example_model);
@@ -268,6 +336,7 @@ struct RightHand;
 fn add_example_model(mut commands: Commands, sk: NonSend<SkDraw>) {
     let model_bundle = ModelBundle::new(
         sk.model_create_mesh(sk.mesh_gen_cube(Vec3::splat(0.1), 1), Material::DEFAULT),
+                ModelInfo::Cube(Vec3::splat(0.1)),
         Default::default(),
         stereokit::named_colors::AQUAMARINE,
         Default::default(),
@@ -317,7 +386,7 @@ fn model_added(
     if let Some(connection) = client.get_connection_mut() {
         for (entity, _, transform, color128, render_layer) in query.iter() {
             connection
-                .send_message(
+                .send_lek_msg(
                     ModelMsg::Client(ModelMsgClient::ModelAdded(
                         ClientEntity(entity),
                         ModelData {
@@ -326,8 +395,7 @@ fn model_added(
                             color128: *color128,
                             render_layer: *render_layer,
                         },
-                    ))
-                    .to_message(),
+                    )),
                 )
                 .unwrap()
         }
@@ -336,8 +404,8 @@ fn model_added(
 
 fn model_changed(
     query: Query<
-        (Entity, &Model, &Transform, &Color128, &RenderLayer),
-        (Changed<Transform>, Without<IgnoreModelAdd>, With<Networked>),
+        (Entity, &ModelInfo, &Transform, &Color128, &RenderLayer),
+        (Or<(Changed<Transform>, Changed<Color128>, Changed<RenderLayer>)>, Without<IgnoreModelAdd>, With<Networked>),
     >,
     mut client: ResMut<Client>,
     entity_map: Res<EntityMap>,
@@ -346,17 +414,15 @@ fn model_changed(
         for (entity, _, transform, color128, render_layer) in query.iter() {
             if let Some(server_entity) = entity_map.get_by_left(&ClientEntity(entity)) {
                 connection
-                    .send_message(
+                    .send_lek_msg(
                         ModelMsg::Client(ModelMsgClient::ModelChanged(
                             *server_entity,
-                            ModelData {
-                                model_info: ModelInfo::Cube([0.1, 0.1, 0.1].into()),
+                            ModelData2 {
                                 transform: *transform,
                                 color128: *color128,
                                 render_layer: *render_layer,
                             },
-                        ))
-                        .to_message(),
+                        )),
                     )
                     .unwrap()
             }

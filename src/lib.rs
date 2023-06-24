@@ -5,16 +5,28 @@ mod tests;
 
 use bevy_app::{App, Plugin, PluginGroup, PluginGroupBuilder};
 use bevy_ecs::prelude::Bundle;
-use bevy_ecs::prelude::{NonSend, Query};
+use bevy_ecs::prelude::{NonSend, Query, Component};
 use bevy_transform::components::GlobalTransform;
 use bevy_transform::prelude::Transform;
 use bevy_transform::systems::sync_simple_transforms;
 use bevy_transform::TransformPlugin;
+use glam::Vec3;
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use stereokit::{Color128, Model, RenderLayer, Settings, SkDraw, StereoKitDraw};
 
-pub struct StereoKitBevyMinimalPlugins;
+#[derive(Clone, Debug, Component)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum ModelInfo {
+    Mem{name: String, mem: Vec<u8>},
+    Cube(Vec3),
+}
 
-impl PluginGroup for StereoKitBevyMinimalPlugins {
+#[cfg(not(feature = "networking"))]
+pub struct StereoKitBevyPlugins;
+
+#[cfg(not(feature = "networking"))]
+impl PluginGroup for StereoKitBevyPlugins {
     fn build(self) -> PluginGroupBuilder {
         PluginGroupBuilder::start::<Self>()
             .add(StereoKitBevy)
@@ -23,8 +35,10 @@ impl PluginGroup for StereoKitBevyMinimalPlugins {
     }
 }
 
+#[cfg(not(feature = "networking"))]
 pub struct StereoKitBevy;
 
+#[cfg(not(feature = "networking"))]
 impl Plugin for StereoKitBevy {
     fn build(&self, app: &mut App) {
         fn stereokit_loop(mut app: App) {
@@ -46,6 +60,7 @@ impl Plugin for StereoKitBevy {
 #[derive(Bundle)]
 pub struct ModelBundle {
     model: Model,
+    model_info: ModelInfo,
     transform: Transform,
     global_transform: GlobalTransform,
     color: Color128,
@@ -55,12 +70,14 @@ pub struct ModelBundle {
 impl ModelBundle {
     pub fn new(
         model: Model,
+        model_info: ModelInfo,
         transform: Transform,
         color: Color128,
         render_layer: RenderLayer,
     ) -> Self {
         Self {
             model,
+            model_info,
             transform,
             global_transform: GlobalTransform::from(transform),
             color,

@@ -1,13 +1,13 @@
 use bevy_ecs::prelude::{Commands, Res};
 use bevy_transform::prelude::Transform;
 use glam::{Mat4, Quat, Vec3};
-#[cfg(feature = "networking")]
-use leknet::MessageMap;
 use stereokit::{Color128, Material, Mesh, RenderLayer, Sk, StereoKitDraw, StereoKitMultiThread};
+use crate::ModelInfo;
 
 fn add_example_model(mut commands: Commands, sk: Res<Sk>) {
     commands.spawn(crate::ModelBundle::new(
         sk.model_create_mesh(stereokit::Mesh::CUBE, stereokit::Material::DEFAULT),
+        ModelInfo::Cube(Vec3::splat(1.0)),
         Transform::from_translation(Vec3::new(0.1, 0.0, 0.0)),
         Color128::new(0.1, 0.4, 0.0, 0.6),
         RenderLayer::LAYER1,
@@ -15,14 +15,16 @@ fn add_example_model(mut commands: Commands, sk: Res<Sk>) {
 }
 
 #[test]
+#[cfg(not(feature = "networking"))]
 fn run_plugin_itself() {
     bevy_app::App::new()
-        .add_plugins(crate::StereoKitBevyMinimalPlugins)
+        .add_plugins(crate::StereoKitBevyPlugins)
         .add_startup_system(add_example_model)
         .run();
 }
 
 #[test]
+#[cfg(not(feature = "networking"))]
 fn stereokit_with_bevy() {
     let sk = stereokit::Settings::default().init().unwrap();
     let mut app = bevy_app::App::new();
