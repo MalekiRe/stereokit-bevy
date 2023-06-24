@@ -1,5 +1,5 @@
 #[cfg(feature = "networking")]
-mod networking;
+pub mod networking;
 #[cfg(test)]
 mod tests;
 

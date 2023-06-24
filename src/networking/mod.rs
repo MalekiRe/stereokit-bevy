@@ -11,6 +11,11 @@ mod model_client;
 mod model_server;
 #[cfg(test)]
 mod tests;
+mod player_client;
+mod player_server;
+
+#[derive(Clone, Copy, Component, Debug, Serialize, Deserialize)]
+pub struct Player;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModelData {
@@ -31,6 +36,8 @@ pub struct ModelData2 {
 pub struct IgnoreModelAdd;
 #[derive(Component)]
 pub struct IgnoreModelChanged;
+#[derive(Component)]
+pub struct IgnorePlayerAdd;
 
 pub struct StereoKitBevyClient;
 pub struct StereoKitBevyServer;
@@ -38,6 +45,7 @@ pub struct StereoKitBevyServer;
 impl Plugin for StereoKitBevyClient {
     fn build(&self, app: &mut App) {
         model_client::ModelMsgClient::add_plugin_client(app);
+        player_client::PlayerMsgClient::add_plugin_client(app);
         fn stereokit_loop(mut app: App) {
             Settings::default()
                 .init()
@@ -54,6 +62,7 @@ impl Plugin for StereoKitBevyClient {
 impl Plugin for StereoKitBevyServer {
     fn build(&self, app: &mut App) {
         model_server::ModelMsgServer::add_plugin_server(app);
+        player_server::PlayerMsgServer::add_plugin_server(app);
         fn server_loop(mut app: App) {
             loop {
                 app.update()
