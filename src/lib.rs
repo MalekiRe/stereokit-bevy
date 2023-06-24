@@ -1,3 +1,5 @@
+#[cfg(feature = "networking")]
+mod networking;
 #[cfg(test)]
 mod tests;
 
@@ -17,9 +19,9 @@ impl PluginGroup for StereoKitBevyMinimalPlugins {
         PluginGroupBuilder::start::<Self>()
             .add(StereoKitBevy)
             .add(TransformPlugin)
+            .add(bevy_time::TimePlugin)
     }
 }
-
 
 pub struct StereoKitBevy;
 
@@ -68,7 +70,10 @@ impl ModelBundle {
 }
 
 #[cfg(feature = "model-draw-system")]
-fn model_draw(query: Query<(&Model, &GlobalTransform, &Color128, &RenderLayer)>, sk: NonSend<SkDraw>) {
+fn model_draw(
+    query: Query<(&Model, &GlobalTransform, &Color128, &RenderLayer)>,
+    sk: NonSend<SkDraw>,
+) {
     query.iter().for_each(|(model, transform, color, layer)| {
         sk.model_draw(model, transform.compute_matrix(), *color, *layer)
     });

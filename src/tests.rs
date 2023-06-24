@@ -1,6 +1,8 @@
 use bevy_ecs::prelude::{Commands, Res};
 use bevy_transform::prelude::Transform;
 use glam::{Mat4, Quat, Vec3};
+#[cfg(feature = "networking")]
+use leknet::MessageMap;
 use stereokit::{Color128, Material, Mesh, RenderLayer, Sk, StereoKitDraw, StereoKitMultiThread};
 
 fn add_example_model(mut commands: Commands, sk: Res<Sk>) {
