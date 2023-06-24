@@ -5,7 +5,7 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
-default = ["model-draw-system"]
+default = ["model-draw-system", "networking"]
 model-draw-system = []
 networking = ["dep:leknet", "model-draw-system", "serde", "bevy_reflect", "bevy_quinnet", "bevy_transform/serialize", "bincode", "bimap"]
 

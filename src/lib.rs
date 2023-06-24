@@ -5,7 +5,7 @@ mod tests;
 
 use bevy_app::{App, Plugin, PluginGroup, PluginGroupBuilder};
 use bevy_ecs::prelude::Bundle;
-use bevy_ecs::prelude::{NonSend, Query, Component};
+use bevy_ecs::prelude::{Component, NonSend, Query};
 use bevy_transform::components::GlobalTransform;
 use bevy_transform::prelude::Transform;
 use bevy_transform::systems::sync_simple_transforms;
@@ -18,7 +18,7 @@ use stereokit::{Color128, Model, RenderLayer, Settings, SkDraw, StereoKitDraw};
 #[derive(Clone, Debug, Component)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum ModelInfo {
-    Mem{name: String, mem: Vec<u8>},
+    Mem { name: String, mem: Vec<u8> },
     Cube(Vec3),
 }
 

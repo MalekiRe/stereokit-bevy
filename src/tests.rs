@@ -1,8 +1,8 @@
+use crate::ModelInfo;
 use bevy_ecs::prelude::{Commands, Res};
 use bevy_transform::prelude::Transform;
 use glam::{Mat4, Quat, Vec3};
 use stereokit::{Color128, Material, Mesh, RenderLayer, Sk, StereoKitDraw, StereoKitMultiThread};
-use crate::ModelInfo;
 
 fn add_example_model(mut commands: Commands, sk: Res<Sk>) {
     commands.spawn(crate::ModelBundle::new(
