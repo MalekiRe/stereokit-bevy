@@ -1,15 +1,20 @@
 use bevy_app::App;
-use bevy_ecs::prelude::{Added, Changed, Commands, Entity, Query, Res, ResMut, With, Without, World};
+use bevy_ecs::prelude::{Added, Changed, Commands, Entity, NonSend, Query, Res, ResMut, With, Without, World, Component};
 use bevy_ecs::system::SystemState;
 use bevy_quinnet::client::Client;
 use bevy_quinnet::shared::channel::ChannelType;
 use bevy_quinnet::shared::channel::ChannelType::{OrderedReliable, Unreliable};
 use bevy_quinnet::shared::ClientId;
 use bevy_transform::prelude::Transform;
+use bevy_transform::{TransformBundle, TransformPlugin};
 use leknet::{ClientEntity, ClientMessage, EntityMap, LekClient, Networked, ServerEntity, TypeName};
-use crate::networking::{IgnorePlayerAdd, ModelData, ModelData2, Player};
+use crate::networking::{IgnorePlayerAdd, IgnorePlayerChanged, ModelData, ModelData2, Player};
 use serde::{Serialize, Deserialize};
+use stereokit::{Sk, SkDraw, StereoKitMultiThread};
 use crate::networking::player_server::PlayerMsgServer;
+
+#[derive(Clone, Debug, Serialize, Deserialize, Component)]
+pub struct LocalPlayer;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum PlayerMsgClient {
@@ -61,6 +66,19 @@ impl ClientMessage for PlayerMsgClient {
     fn plugin(app: &mut App) {
         app.add_system(player_added);
         app.add_system(player_changed);
+        app.add_startup_system(spawn_player);
+        app.add_system(sync_player);
+    }
+}
+
+fn spawn_player(sk: NonSend<SkDraw>, mut commands: Commands) {
+    let transform = Transform::from_translation(sk.input_head().position).with_rotation(sk.input_head().orientation);
+    commands.spawn((Player, Networked, LocalPlayer)).insert(TransformBundle::from(transform));
+}
+fn sync_player(mut query: Query<(&LocalPlayer, &Player, &Networked, &mut Transform)>, sk: Res<Sk>) {
+    for (_, _, _, mut transform) in query.iter_mut() {
+        transform.translation = sk.input_head().position;
+        transform.rotation = sk.input_head().orientation;
     }
 }
 
@@ -102,6 +120,7 @@ fn player_changed_msg(world: &mut World, server_entity: ServerEntity, transform:
     if let Some(client_entity) = client_entity {
         let mut world_entity = world.entity_mut(client_entity.0);
         *world_entity.get_mut().unwrap() = transform;
+        //world_entity.insert(IgnorePlayerChanged);
     }
 }
 fn player_added_msg(world: &mut World, server_entity: ServerEntity, transform: Transform) {
@@ -112,7 +131,8 @@ fn player_added_msg(world: &mut World, server_entity: ServerEntity, transform: T
     let mut commands: Commands = commands;
     let client_entity = ClientEntity(
         commands
-            .spawn((Player, transform, Networked))
+            .spawn((Player, Networked))
+            .insert(TransformBundle::from(transform))
             .insert(IgnorePlayerAdd)
             .id(),
     );
@@ -144,7 +164,7 @@ fn player_changed(
         (Entity, &Transform, &Player),
         (
             Changed<Transform>,
-            Without<IgnorePlayerAdd>,
+            Without<IgnorePlayerChanged>,
             With<Networked>,
         ),
     >,

@@ -1,8 +1,8 @@
 use crate::{model_draw, ModelInfo};
 use bevy_app::{App, Plugin, PluginGroup, PluginGroupBuilder};
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, Schedules};
 use bevy_transform::prelude::Transform;
-use bevy_transform::systems::sync_simple_transforms;
+use bevy_transform::systems::{propagate_transforms, sync_simple_transforms};
 use leknet::{ClientMessage, LeknetClient, LeknetServer, ServerMessage};
 use serde::{Deserialize, Serialize};
 use stereokit::{Color128, RenderLayer, Settings};
@@ -11,7 +11,7 @@ mod model_client;
 mod model_server;
 #[cfg(test)]
 mod tests;
-mod player_client;
+pub mod player_client;
 mod player_server;
 
 #[derive(Clone, Copy, Component, Debug, Serialize, Deserialize)]
@@ -38,6 +38,8 @@ pub struct IgnoreModelAdd;
 pub struct IgnoreModelChanged;
 #[derive(Component)]
 pub struct IgnorePlayerAdd;
+#[derive(Component)]
+pub struct IgnorePlayerChanged;
 
 pub struct StereoKitBevyClient;
 pub struct StereoKitBevyServer;
@@ -55,7 +57,6 @@ impl Plugin for StereoKitBevyClient {
         app.set_runner(stereokit_loop);
         app.insert_resource(unsafe { stereokit::Sk::create_unsafe() });
         app.insert_non_send_resource(unsafe { stereokit::SkDraw::create_unsafe() });
-        app.add_system(sync_simple_transforms);
         app.add_system(model_draw);
     }
 }
@@ -81,7 +82,12 @@ impl PluginGroup for StereoKitBevyClientPlugins {
             .add(StereoKitBevyClient)
             .add(LeknetClient)
             .add(bevy_transform::TransformPlugin)
+            .add(bevy_hierarchy::HierarchyPlugin)
+            .add(bevy_core::TaskPoolPlugin::default())
+            .add(bevy_core::TypeRegistrationPlugin)
+            .add(bevy_core::FrameCountPlugin)
             .add(bevy_time::TimePlugin)
+
             .add(bevy_quinnet::client::QuinnetClientPlugin::default())
     }
 }

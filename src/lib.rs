@@ -9,7 +9,7 @@ use bevy_ecs::prelude::{Component, NonSend, Query};
 use bevy_transform::components::GlobalTransform;
 use bevy_transform::prelude::Transform;
 use bevy_transform::systems::sync_simple_transforms;
-use bevy_transform::TransformPlugin;
+use bevy_transform::{TransformBundle, TransformPlugin};
 use glam::Vec3;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -50,7 +50,6 @@ impl Plugin for StereoKitBevy {
         app.set_runner(stereokit_loop);
         app.insert_resource(unsafe { stereokit::Sk::create_unsafe() });
         app.insert_non_send_resource(unsafe { stereokit::SkDraw::create_unsafe() });
-        app.add_system(sync_simple_transforms);
         #[cfg(feature = "model-draw-system")]
         app.add_system(model_draw);
     }
@@ -75,11 +74,12 @@ impl ModelBundle {
         color: Color128,
         render_layer: RenderLayer,
     ) -> Self {
+        let t = TransformBundle::from(transform);
         Self {
             model,
             model_info,
-            transform,
-            global_transform: GlobalTransform::from(transform),
+            transform: t.local,
+            global_transform: t.global,
             color,
             render_layer,
         }
